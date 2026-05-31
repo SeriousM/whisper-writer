@@ -1,0 +1,206 @@
+name: Build Windows Executable
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Git tag for the release (optional)'
+        required: false
+        default: 'v1.0.2'
+      backend:
+        description: 'Backend to include in the exe (faster_whisper, openai, vosk) - comma separated'
+        required: true
+        default: 'faster_whisper'
+      model_size:
+        description: 'Faster Whisper model size (tiny, base, small, medium, large)' 
+        required: false
+        default: 'base.en'
+      compute_type:
+        description: 'Compute type for Faster Whisper (default, float32, float16, int8)'
+        required: false
+        default: 'float16'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+      # Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Install Python and pipx
+      - name: Install Python and pipx
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # Set up pipx for installing PyInstaller without polluting the environment
+      - name: Set up pipx
+        run: |
+          pip install --user pipx
+          pipx ensurepath
+          echo "${PATH}" | Set-Item -Path Env:\PATH -Value $env:PATH
+
+      # Install base dependencies
+      - name: Install base dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller PyQt6 PyYAML numpy scipy soundfile webrtcvad pynput PyAudio cffi
+          
+          # Install faster-whisper with GPU support if requested
+          $backend = $env:INPUT_BACKEND.ToLower()
+          if ($backend -eq 'faster_whisper') {
+            python -m pip install --no-deps faster-whisper==1.0.3
+            $model_size = $env:INPUT_MODEL_SIZE
+            $compute_type = $env:INPUT_COMPUTE_TYPE
+            python -c "
+import subprocess
+from pathlib import Path
+
+# Download the Faster Whisper model if not already present
+model_dir = Path.home() / '.cache' / 'faster_whisper'
+if not (model_dir / '$model_size').exists():
+    print(f'Downloading Faster Whisper model: {model_size}')
+    subprocess.run(['faster-whisper', 'download', '--model-size', '$model_size'])
+else:
+    print(f'Model already downloaded at: {model_dir / model_size}')
+" 
+          }
+
+      # Install additional backends if requested
+      - name: Install additional backends
+        shell: pwsh
+        run: |
+          $backends = $env:INPUT_BACKEND.ToLower().Split(',') | ForEach-Object { $_.Trim() }
+          
+          foreach ($backend in $backends) {
+            $backend_lower = $backend.ToLower()
+            if ($backend_lower -eq 'faster_whisper') {
+              continue # Already handled above
+            } elseif ($backend_lower -eq 'openai') {
+              python -m pip install --no-deps openai==1.44.1
+            } elseif ($backend_lower -eq 'vosk') {
+              python -m pip install --no-deps vosk==0.3.45
+            } else {
+              echo "Unknown backend: $backend"
+            }
+          }
+
+      # Create a virtual environment for PyInstaller
+      - name: Create PyInstaller environment
+        shell: pwsh
+        run: |
+          python -m venv pyinstaller_env
+          .\pyinstaller_env\Scripts\Activate.ps1
+          
+          pip install --upgrade pip
+          pip install pyinstaller PyQt6==6.7.2 PyYAML numpy scipy soundfile webrtcvad pynput PyAudio cffi
+          
+          # Install the specific faster-whisper version with model
+          if ($env:INPUT_BACKEND.ToLower().Contains('faster_whisper')) {
+            python -m pip install --no-deps faster-whisper==1.0.3
+            $model_size = $env:INPUT_MODEL_SIZE
+            $compute_type = $env:INPUT_COMPUTE_TYPE
+            python -c "
+import subprocess
+from pathlib import Path
+
+# Download the Faster Whisper model if not already present in PyInstaller env
+model_dir = Path.home() / '.cache' / 'faster_whisper'
+if not (model_dir / '$model_size').exists():
+    print(f'Downloading Faster Whisper model: {model_size}')
+    subprocess.run(['faster-whisper', 'download', '--model-size', '$model_size'], check=True)
+else:
+    print(f'Model already downloaded at: {model_dir / model_size}')
+" 
+          }
+
+      # Add PyInstaller environment to PATH
+      - name: Set PyInstaller PATH
+        run: |
+          echo "${{ github.workspace }}/pyinstaller_env/Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # Create a build script with the proper entry point
+      - name: Create build script
+        shell: pwsh
+        run: |
+          $buildScript = @'
+import sys
+from PyQt6.QtWidgets import QApplication
+from ui.ui_manager import UIManager
+from application_controller import ApplicationController
+from event_bus import EventBus
+from config_manager import ConfigManager
+def main():
+    app = QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)
+    event_bus = EventBus()
+    ConfigManager.initialize(event_bus)
+    ui_manager = UIManager(event_bus)
+    controller = ApplicationController(ui_manager, event_bus)
+    exit_code = controller.run()
+    sys.exit(exit_code)
+if __name__ == "__main__":
+    main()
+@'
+          $buildScript | Out-File -FilePath build_entry.py -Encoding utf8
+          echo "Created build_entry.py"
+      
+      # Build the executable
+      - name: Build Windows Executable
+        shell: pwsh
+        run: |
+          .\pyinstaller_env\Scripts\Activate.ps1
+          python pyinstaller --onefile --windowed --name "WhisperWriter" --icon assets/ww-logo.ico build_entry.py
+          
+          # The executable will be in dist/
+          if (Test-Path "dist/WhisperWriter.exe") {
+            echo "Build successful!"
+            Move-Item -Path "dist/WhisperWriter.exe" -Destination "WhisperWriter_${env:INPUT_BACKEND}_${env:INPUT_MODEL_SIZE}.exe" -Force
+            echo "Output file created: WhisperWriter_${env:INPUT_BACKEND}_${env:INPUT_MODEL_SIZE}.exe"
+          } else {
+            throw "Build failed! Check PyInstaller output for errors."
+          }
+      
+      # Upload the executable as an artifact
+      - name: Upload Executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: WhisperWriter-${{ github.event.inputs.tag_name }}-windows
+          path: WhisperWriter_*.exe
+          retention-days: 7
+          if-no-files-found: error
+
+      # Optional: Create a release with the executable
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          release_name: WhisperWriter v${{ github.event.inputs.tag_name }} - Windows Executable
+          body: | 
+            Released a portable Windows executable for WhisperWriter.
+            
+            **Features:**
+            - Portable .exe file (no Python installation required)
+            - Multiple transcription backends support
+            - Real-time speech-to-text to active window
+            - Configurable shortcuts and recording modes
+          draft: true
+          prerelease: false
+      
+      - name: Upload Release Asset
+        if: steps.create_release.outputs.release-url != ''
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: WhisperWriter_*.exe
+          asset_name: WhisperWriter_${{ github.event.inputs.tag_name }}-windows.exe
+          asset_content_type: application/octet-stream
