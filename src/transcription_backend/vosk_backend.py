@@ -28,7 +28,22 @@ class VoskBackend(TranscriptionBackendBase):
             raise RuntimeError("Failed to import vosk. Make sure it's installed.")
 
         try:
-            model_path = self.config.get('model_path', "model")
+            model_path = self.config.get('model_path', '') or ''
+            if not model_path:
+                # Resolve via the local downloader using the chosen model name
+                model_name = self.config.get('model', '')
+                if model_name:
+                    from model_downloader import vosk_dir
+                    candidate = vosk_dir(model_name)
+                    if candidate.exists():
+                        model_path = str(candidate)
+                    else:
+                        raise RuntimeError(
+                            f"Vosk model '{model_name}' is not downloaded yet. "
+                            f"Open Settings and click 'Download model'."
+                        )
+                else:
+                    model_path = 'model'
             self.model = self.vosk.Model(model_path)
             sample_rate = self.config.get('sample_rate', 16000)
             self.recognizer = self.vosk.KaldiRecognizer(self.model, sample_rate)

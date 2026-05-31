@@ -196,10 +196,25 @@ available_backends:
       type: str
       description: "A string used as an initial prompt to condition the transcription."
   vosk:
+    model:
+      value: vosk-model-small-en-us-0.15
+      type: str
+      description: "The Vosk model to use. Click the 'Download model' button to fetch it locally if you haven't yet."
+      options:
+        - vosk-model-small-en-us-0.15
+        - vosk-model-en-us-0.22
+        - vosk-model-en-us-0.22-lgraph
+        - vosk-model-small-de-0.15
+        - vosk-model-de-0.21
+        - vosk-model-small-fr-0.22
+        - vosk-model-small-es-0.42
+        - vosk-model-small-ru-0.22
+        - vosk-model-small-cn-0.22
+        - vosk-model-small-ja-0.22
     model_path:
-      value: "./model"
+      value: ""
       type: dir_path
-      description: "Path to the folder containing the Vosk model files. Default is 'model' in the current directory."
+      description: "Path to the folder containing the Vosk model files. Leave empty to use a downloaded model from the 'model' setting above."
     sample_rate:
       value: 16000
       type: int

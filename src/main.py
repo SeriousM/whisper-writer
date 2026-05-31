@@ -1,10 +1,57 @@
+import os
 import sys
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QPalette, QColor
+from PyQt6.QtGui import QPalette, QColor, QIcon
 from ui.ui_manager import UIManager
 from application_controller import ApplicationController
 from event_bus import EventBus
 from config_manager import ConfigManager
+
+
+class _NullStream:
+    """Stand-in for sys.stdout/stderr when running as a --windowed PyInstaller exe.
+    Some libs (tqdm, huggingface_hub) call .write/.flush and crash on None."""
+    def write(self, *a, **kw):
+        return 0
+    def flush(self):
+        pass
+    def isatty(self):
+        return False
+    def fileno(self):
+        raise OSError('no fileno in windowed mode')
+
+
+def _ensure_std_streams():
+    if sys.stdout is None:
+        sys.stdout = _NullStream()
+    if sys.stderr is None:
+        sys.stderr = _NullStream()
+
+
+def _resource_path(*parts) -> str:
+    """Find a bundled resource both in dev tree and in a PyInstaller bundle."""
+    candidates = []
+    base = getattr(sys, '_MEIPASS', None)
+    if base:
+        candidates.append(os.path.join(base, *parts))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, '..', *parts))
+    candidates.append(os.path.join(os.getcwd(), *parts))
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return os.path.join(*parts)
+
+
+def _set_windows_app_id():
+    """Tell Windows this is its own app so the taskbar uses our icon, not Python's."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('WhisperWriter.App.1')
+    except Exception:
+        pass
 
 
 def _apply_dark_theme(app: QApplication):
@@ -33,8 +80,15 @@ def _apply_dark_theme(app: QApplication):
 
 
 def main():
+    _ensure_std_streams()
+    _set_windows_app_id()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setApplicationName('WhisperWriter')
+    # Set the app icon for window decorations and Windows taskbar
+    icon_path = _resource_path('assets', 'ww-logo.ico')
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     _apply_dark_theme(app)
 
     event_bus = EventBus()

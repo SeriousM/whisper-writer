@@ -70,6 +70,7 @@ REM NOTE: PyInstaller module name is capitalized
     --collect-all tokenizers ^
     --collect-all onnxruntime ^
     --collect-all pkg_resources ^
+    --collect-all huggingface_hub ^
     --hidden-import pkg_resources ^
     src/main.py
 if errorlevel 1 (

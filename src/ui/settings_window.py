@@ -1,8 +1,9 @@
 import os
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QTabWidget, QGroupBox, QGridLayout,
                              QLabel, QLineEdit, QComboBox, QCheckBox, QPushButton, QFileDialog,
-                             QScrollArea, QToolButton, QMessageBox, QVBoxLayout, QInputDialog)
-from PyQt6.QtCore import Qt, pyqtSignal
+                             QScrollArea, QToolButton, QMessageBox, QVBoxLayout, QInputDialog,
+                             QProgressDialog, QApplication)
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QIcon, QIntValidator, QDoubleValidator
 
 from config_manager import ConfigManager
@@ -89,6 +90,9 @@ class SettingsWindow(QWidget):
             group_layout = QVBoxLayout()
             self.create_section_widgets(group_layout, section,
                                         f'profiles.{profile_name}.{section_name}')
+            # Add a 'Download model' button for local backends
+            if section_name == 'backend':
+                self._add_download_model_button(group_layout, profile_name)
             group_box.setLayout(group_layout)
             layout.addWidget(group_box)
         else:
@@ -100,6 +104,68 @@ class SettingsWindow(QWidget):
             widget.input_widget.currentTextChanged.connect(
                 lambda value, pn=profile_name: self.update_backend_options(pn, value)
             )
+
+    def _add_download_model_button(self, layout, profile_name):
+        backend_type = ConfigManager.get_value(f'profiles.{profile_name}.backend_type')
+        if backend_type not in ('faster_whisper', 'vosk'):
+            return
+        btn = QPushButton("Download model")
+        btn.setToolTip("Download the currently selected model to a local folder so it works offline.")
+        btn.clicked.connect(lambda: self._download_current_model(profile_name, backend_type))
+        layout.addWidget(btn)
+
+    def _download_current_model(self, profile_name, backend_type):
+        model_name = ConfigManager.get_value(f'profiles.{profile_name}.backend.model')
+        if not model_name:
+            QMessageBox.warning(self, 'No model selected',
+                                'Please pick a model in the dropdown first.')
+            return
+
+        progress = QProgressDialog(f'Preparing to download {model_name}...',
+                                   'Cancel', 0, 0, self)
+        progress.setWindowTitle('Downloading model')
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        progress.show()
+        QApplication.processEvents()
+
+        worker = _DownloadWorker(backend_type, model_name)
+        worker.progress.connect(
+            lambda cur, tot, msg: self._on_dl_progress(progress, cur, tot, msg))
+        worker.finished_ok.connect(
+            lambda path: self._on_dl_done(progress, profile_name, backend_type, model_name, path))
+        worker.failed.connect(
+            lambda err: self._on_dl_failed(progress, err))
+        # Cancel is best-effort: we just close the dialog; download continues in bg until next chunk.
+        progress.canceled.connect(worker.requestInterruption)
+        worker.start()
+        # Keep a reference so the thread isn't GC'd
+        self._active_dl_worker = worker
+
+    def _on_dl_progress(self, dialog, current, total, message):
+        if total > 0:
+            dialog.setMaximum(total)
+            dialog.setValue(current)
+        else:
+            dialog.setMaximum(0)  # indeterminate
+        dialog.setLabelText(message)
+        QApplication.processEvents()
+
+    def _on_dl_done(self, dialog, profile_name, backend_type, model_name, path):
+        dialog.close()
+        # For faster_whisper/vosk, the backend auto-resolves the local dir when
+        # model_path is empty — but we set it anyway so the user can see where it lives.
+        ConfigManager.set_value(f'profiles.{profile_name}.backend.model_path', str(path))
+        QMessageBox.information(
+            self, 'Model downloaded',
+            f'Model "{model_name}" is ready at:\n{path}\n\n'
+            f'It will be used automatically next time you start transcription.')
+
+    def _on_dl_failed(self, dialog, err):
+        dialog.close()
+        QMessageBox.critical(self, 'Download failed', str(err))
 
     def add_profile_management_buttons(self, layout, profile_name):
         delete_button = QPushButton(f"Delete {profile_name}")
@@ -156,6 +222,8 @@ class SettingsWindow(QWidget):
             backend_config = ConfigManager.get_section('backend', profile_name)
             self.create_section_widgets(backend_layout, backend_config,
                                         f'profiles.{profile_name}.backend')
+            # Re-add the download button for local backends
+            self._add_download_model_button(backend_layout, profile_name)
         else:
             print(f"Backend group for {profile_name} not found")  # Debug print
             # If the backend group doesn't exist, recreate the entire profile tab
@@ -500,3 +568,33 @@ class CheckboxListWidget(QWidget):
 
     def get_selected_options(self):
         return self.selected_options
+
+
+class _DownloadWorker(QThread):
+    """Run a model download off the UI thread."""
+    progress = pyqtSignal(int, int, str)   # current, total, message
+    finished_ok = pyqtSignal(str)          # path to downloaded model
+    failed = pyqtSignal(str)               # error message
+
+    def __init__(self, backend_type, model_name, parent=None):
+        super().__init__(parent)
+        self.backend_type = backend_type
+        self.model_name = model_name
+
+    def run(self):
+        try:
+            from model_downloader import download_faster_whisper, download_vosk
+
+            def cb(cur, tot, msg):
+                # Forward to the GUI thread
+                self.progress.emit(cur, tot, msg)
+
+            if self.backend_type == 'faster_whisper':
+                path = download_faster_whisper(self.model_name, cb)
+            elif self.backend_type == 'vosk':
+                path = download_vosk(self.model_name, cb)
+            else:
+                raise RuntimeError(f"Backend '{self.backend_type}' doesn't support downloads.")
+            self.finished_ok.emit(str(path))
+        except Exception as e:
+            self.failed.emit(f'{type(e).__name__}: {e}')

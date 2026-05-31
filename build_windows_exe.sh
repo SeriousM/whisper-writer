@@ -61,6 +61,7 @@ echo "[STEP 4/4] Building Windows executable (this takes 1-2 minutes)..."
     --collect-all tokenizers \
     --collect-all onnxruntime \
     --collect-all pkg_resources \
+    --collect-all huggingface_hub \
     --hidden-import pkg_resources \
     src/main.py
 

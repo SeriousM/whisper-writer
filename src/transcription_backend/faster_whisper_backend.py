@@ -37,9 +37,20 @@ class FasterWhisperBackend(TranscriptionBackendBase):
     def _load_model(self):
         ConfigManager.log_print('Creating Faster Whisper model...')
         compute_type = self.config.get('compute_type', 'default')
-        model_path = self.config.get('model_path', '')
+        model_path = self.config.get('model_path', '') or ''
         device = self.config.get('device', 'auto')
         model_name = self.config.get('model', 'base')
+
+        # If no explicit model_path, check the local downloads dir for a matching model
+        if not model_path:
+            try:
+                from model_downloader import faster_whisper_dir
+                local = faster_whisper_dir(model_name)
+                if (local / 'model.bin').exists() or (local / 'config.json').exists():
+                    model_path = str(local)
+                    ConfigManager.log_print(f'Using locally-downloaded model at: {model_path}')
+            except Exception:
+                pass
 
         if model_path:
             try:
