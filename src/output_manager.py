@@ -1,10 +1,16 @@
 import subprocess
 import os
 import signal
+import sys
 import time
-import fcntl
 import struct
 from pynput.keyboard import Key, Controller as PynputController
+
+# fcntl is Linux-only (used by UinputBackend). Skip on Windows.
+if sys.platform != 'win32':
+    import fcntl
+else:
+    fcntl = None
 
 from config_manager import ConfigManager
 from event_bus import EventBus

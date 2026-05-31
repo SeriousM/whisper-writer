@@ -25,14 +25,32 @@ class MainWindow(BaseWindow):
         """
         Initialize the main user interface.
         """
+        button_style = """
+            QPushButton {
+                background-color: #3c3c3f;
+                color: #e0e0e0;
+                border: 1px solid #555555;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4d;
+                border: 1px solid #777777;
+            }
+            QPushButton:pressed {
+                background-color: #2a2a2d;
+            }
+        """
+
         start_btn = QPushButton('Start')
         start_btn.setFont(QFont('Segoe UI', 10))
         start_btn.setFixedSize(120, 60)
+        start_btn.setStyleSheet(button_style)
         start_btn.clicked.connect(self.start_pressed)
 
         settings_btn = QPushButton('Settings')
         settings_btn.setFont(QFont('Segoe UI', 10))
         settings_btn.setFixedSize(120, 60)
+        settings_btn.setStyleSheet(button_style)
         settings_btn.clicked.connect(self.open_settings.emit)
 
         button_layout = QHBoxLayout()

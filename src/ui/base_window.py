@@ -35,7 +35,7 @@ class BaseWindow(QMainWindow):
         title_label = QLabel('WhisperWriter')
         title_label.setFont(QFont('Segoe UI', 12))
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title_label.setStyleSheet("color: #404040;")
+        title_label.setStyleSheet("color: #e0e0e0;")
 
         # Create a widget for the close button
         close_button_widget = QWidget()
@@ -48,10 +48,10 @@ class BaseWindow(QMainWindow):
             QPushButton {
                 background-color: transparent;
                 border: none;
-                color: #404040;
+                color: #c0c0c0;
             }
             QPushButton:hover {
-                color: #000000;
+                color: #ffffff;
             }
         """)
         close_button.clicked.connect(self.handleCloseButton)
@@ -112,6 +112,6 @@ class BaseWindow(QMainWindow):
         path.addRoundedRect(QRectF(self.rect()), 20, 20)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QBrush(QColor(255, 255, 255, 220)))
+        painter.setBrush(QBrush(QColor(45, 45, 48, 235)))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawPath(path)

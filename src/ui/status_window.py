@@ -36,7 +36,7 @@ class StatusWindow(BaseWindow):
 
         self.status_label = QLabel('Recording...')
         self.status_label.setFont(QFont('Segoe UI', 12))
-        self.status_label.setStyleSheet("color: #505050;")
+        self.status_label.setStyleSheet("color: #d0d0d0;")
 
         status_layout.addStretch(1)
         status_layout.addWidget(self.icon_label)

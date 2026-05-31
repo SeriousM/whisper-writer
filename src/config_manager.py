@@ -184,7 +184,20 @@ class ConfigManager:
     @classmethod
     def initialize(cls, event_bus: EventBus):
         cls._event_bus = event_bus
-        cls._schema = ConfigLoader.load_yaml('src/config_schema.yaml')
+        # Locate config_schema.yaml in dev tree, PyInstaller bundle, or alongside the exe
+        import sys as _sys
+        schema_path = None
+        candidates = []
+        if hasattr(_sys, '_MEIPASS'):
+            candidates.append(os.path.join(_sys._MEIPASS, 'config_schema.yaml'))
+            candidates.append(os.path.join(_sys._MEIPASS, 'src', 'config_schema.yaml'))
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config_schema.yaml'))
+        candidates.append('src/config_schema.yaml')
+        for p in candidates:
+            if os.path.exists(p):
+                schema_path = p
+                break
+        cls._schema = ConfigLoader.load_yaml(schema_path or 'src/config_schema.yaml')
         # Initialize with empty profiles list
         cls._profile_manager = ProfileManager({'profiles': []}, cls._schema)
         cls._config = cls._load_config()

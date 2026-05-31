@@ -130,3 +130,6 @@ dmypy.json
 
 # Configuration files
 config.yaml
+# PyInstaller venv created by build_windows_exe.sh / .bat
+pyinstaller_env/
+build_entry.py
